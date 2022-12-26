@@ -174,12 +174,16 @@ SELECT
 FROM
 	pizza_runner.runner_orders
 )
-SELECT 
+SELECT
 	runner_id,
-    AVG(duration) AS avg_time_to_pickup
-FROM clean_runner_orders
+	AVG(timestampdiff(MINUTE, b.order_time, a.pickup_time)) AS avg_time_to_pickup
+FROM clean_runner_orders a
+INNER JOIN
+	pizza_runner.customer_orders b
+ON a.order_id = b.order_id
 GROUP BY runner_id
-ORDER BY 1;
+ORDER BY 1
+;
 
 -- B.3 - Is there any relationship between the number of pizzas and how long the order takes to prepare?
 SELECT c.total_pizzas, ROUND(AVG(preparation_time),2) AS average_prep_time
@@ -199,3 +203,80 @@ GROUP BY c.total_pizzas
 ORDER BY 1;
 
 -- B.4 - What was the average distance travelled for each customer?
+WITH clean_runner_orders AS ( 
+SELECT
+	order_id, runner_id, pickup_time,
+    replace(distance, 'km', '') AS distance,
+    replace(replace(replace(replace(replace(duration, ' ', ''), 'minutes', ''), 'minute', ''), 'mins', ''), 'min', '') AS duration,
+    CASE WHEN cancellation is NULL or cancellation = 'null' or cancellation = '' THEN 0 ELSE 1 END AS cancellation
+FROM
+	pizza_runner.runner_orders
+)
+SELECT 
+	a.customer_id, ROUND(AVG(b.distance), 2) AS average_distance
+FROM 
+	pizza_runner.customer_orders a
+INNER JOIN
+	clean_runner_orders b
+ON a.order_id = b.order_id
+INNER JOIN
+(
+SELECT DISTINCT order_id FROM clean_runner_orders WHERE cancellation = 0
+) c
+ON a.order_id = b.order_id
+GROUP BY a.customer_id;
+
+
+-- B.5 -What was the difference between the longest and shortest delivery times for all orders?
+WITH clean_runner_orders AS ( 
+SELECT
+	order_id, runner_id, pickup_time,
+    CASE WHEN replace(distance, 'km', '') IN ('null') THEN NULL ELSE replace(distance, 'km', '') END AS distance,
+    CASE WHEN duration IN ('null') THEN NULL ELSE 
+    replace(replace(replace(replace(replace(duration, ' ', ''), 'minutes', ''), 'minute', ''), 'mins', ''), 'min', '') END AS duration,
+    CASE WHEN cancellation is NULL or cancellation = 'null' or cancellation = '' THEN 0 ELSE 1 END AS cancellation
+FROM
+	pizza_runner.runner_orders
+)
+SELECT MIN(duration) minimum_duration,
+       MAX(duration) AS maximum_duration,
+       MAX(duration) - MIN(duration) AS maximum_difference
+FROM clean_runner_orders;
+
+-- B.6 - What was the average speed for each runner for each delivery and do you notice any trend for these values?
+WITH clean_runner_orders AS ( 
+SELECT
+	order_id, runner_id, pickup_time,
+    CASE WHEN replace(distance, 'km', '') IN ('null') THEN NULL ELSE replace(distance, 'km', '') END AS distance,
+    CASE WHEN duration IN ('null') THEN NULL ELSE 
+    replace(replace(replace(replace(replace(duration, ' ', ''), 'minutes', ''), 'minute', ''), 'mins', ''), 'min', '') END AS duration,
+    CASE WHEN cancellation is NULL or cancellation = 'null' or cancellation = '' THEN 0 ELSE 1 END AS cancellation
+FROM
+	pizza_runner.runner_orders
+)
+SELECT 
+	runner_id, distance, ROUND(duration/60, 2) AS duration_hrs,
+    ROUND(distance/ROUND(duration/60, 2), 2) AS speed
+ FROM clean_runner_orders
+ WHERE distance is NOT NULL AND  duration is NOT NULL
+ ORDER BY 1;
+ 
+ -- B.7 - What is the successful delivery percentage for each runner?
+ WITH clean_runner_orders AS ( 
+SELECT
+	order_id, runner_id, pickup_time,
+    CASE WHEN replace(distance, 'km', '') IN ('null') THEN NULL ELSE replace(distance, 'km', '') END AS distance,
+    CASE WHEN duration IN ('null') THEN NULL ELSE 
+    replace(replace(replace(replace(replace(duration, ' ', ''), 'minutes', ''), 'minute', ''), 'mins', ''), 'min', '') END AS duration,
+    CASE WHEN cancellation is NULL or cancellation = 'null' or cancellation = '' THEN 0 ELSE 1 END AS cancellation
+FROM
+	pizza_runner.runner_orders
+)
+SELECT 
+	runner_id,
+    COUNT(*) AS total_ORDERS,
+    SUM(CASE WHEN cancellation = 0 THEN 1 ELSE 0 END) AS total_orders_delivered,
+    SUM(CASE WHEN cancellation <> 0 THEN 1 ELSE 0 END) AS total_orders_not_delivered,
+    ROUND(SUM(CASE WHEN cancellation = 0 THEN 1 ELSE 0 END)/COUNT(*), 2)*100 AS successful_delivery_percentage
+ FROM clean_runner_orders
+ GROUP BY runner_id;
